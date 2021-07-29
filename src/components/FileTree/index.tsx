@@ -3,9 +3,14 @@ import styled from 'styled-components';
 
 import TreeNode from './TreeNode';
 import Contextmenu from '../Contextmenu';
-import { useAppSelector } from '../../store/hooks';
+import { useAppSelector, useAppDispatch } from '../../store/hooks';
 import { RootState } from '../../store';
+import {addFile, addFolder, deleteFile, deleteFolder, renameFile, renameFolder} from '../../store/files';
 import type { files } from '../../store/files';
+import TemporaryTreeNode from "./TemporaryTreeNode";
+import { ReactComponent as IconNewFile } from '../../assets/svg/create-file.svg';
+import { ReactComponent as IconNewFolder } from '../../assets/svg/create-folder.svg';
+
 
 interface TreeProps {
   projectName?: string,
@@ -16,8 +21,8 @@ interface treeSettingsProps {
   currentSelectNode: string | null,
   currentEditNode: string | null,
   onNodeClick: ((index: number, isFolder: boolean) => void) | null,
-  onNodeContextmenu: ((event: MouseEvent, path: string, type: 'file' | 'folder') => void) | null,
-  onNodeRename: ((nodeIndex: number, newName: string) => void) | null,
+  onNodeContextmenu: ((event: MouseEvent, path: string, type: 'file' | 'folder', index: number) => void) | null,
+  onNodeRename: ((nodeIndex: number, newName: string, eventType: string) => void) | null,
 }
 
 export interface TreeNodeProps {
@@ -28,20 +33,44 @@ export interface TreeNodeProps {
   parentPath: string,
   hidden: boolean,
   expanded?: boolean,
+  isTemporaryNode?: boolean,
 }
 
 const Container = styled.div`
   display: flex;
   flex-direction: column;
   font-size: 13px;
-  padding-left: 6px;
   user-select: none;
+  width: 100%;
 `;
 
 const ProjectName = styled.div`
   font-size: 12px;
   line-height: 12px;
-  padding: 5px 0;
+  padding: 5px 0 5px 6px;
+  display: flex;
+  align-items: center;
+  
+  .icon-buttons {
+    margin-left: auto;
+    margin-right: 10px;
+    white-space: nowrap;
+    
+    button + button {
+      margin-left: 8px;
+    }
+  }
+  
+  button {
+    border: 0;
+    outline: none;
+    padding: 0;
+    margin: 0;
+    background-color: transparent;
+    cursor: pointer;
+    height: 16px;
+    width: 16px;
+  }
 `;
 
 export const TreeSettingsContext = createContext<treeSettingsProps>({
@@ -56,13 +85,15 @@ export const TreeSettingsContext = createContext<treeSettingsProps>({
 const FileTree: React.FC<TreeProps> = ({ projectName = 'PROJECT' }) => {
   const { filesMap } = useAppSelector((state: RootState) => state.files);
 
+  const dispatch = useAppDispatch();
+
   const [ treeData, setTreeData ] = useState<TreeNodeProps[]>(() => {
     return getInitialDataFromStore(filesMap);
   });
 
   const [ expanded ] = useState<boolean>(true);
 
-  const [ currentContextmenuNode, setCurrentContextmenuNode ] = useState<{ path: string, type: 'folder' | 'file' } | null>(null);
+  const [ currentContextmenuNode, setCurrentContextmenuNode ] = useState<{ path: string, type: 'folder' | 'file', index: number } | null>(null);
 
   const [ currentSelectNode, setCurrentSelectNode ] = useState<string | null>(null);
 
@@ -70,55 +101,39 @@ const FileTree: React.FC<TreeProps> = ({ projectName = 'PROJECT' }) => {
 
   const [ contextmenuEventPosition, setContextmenuEventPosition ] = useState<{ clientX: number, clientY: number } | null>(null);
 
-  const [ treeSetting, setTreeSetting ] = useState<treeSettingsProps>({
-    currentContextmenuNode: null,
-    currentEditNode: null,
-    currentSelectNode: null,
-    onNodeClick: (index, isFolder) => {
-      const { path: clickedPath, expanded } = treeData[index];
+  const onClickDelete = useCallback(() => {
+    if (currentContextmenuNode === null) return;
 
-      setCurrentSelectNode(clickedPath);
+    const deletingNodeType = currentContextmenuNode.type;
+    const deletingNodePath = currentContextmenuNode.path;
+    const deletingNodeIndex = currentContextmenuNode.index;
 
-      if (!isFolder) return;
+    setCurrentContextmenuNode(null);
+    setContextmenuEventPosition(null);
 
+    if (deletingNodeType === 'file') {
+      dispatch(deleteFile(deletingNodePath)).then(() => {
+        const newTreeData = [...treeData];
+        newTreeData.splice(deletingNodeIndex, 1);
+        setTreeData(newTreeData);
+      })
+    } else if (deletingNodeType === 'folder') {
+      const deletingPathPrefix = deletingNodePath + '/';
       const newTreeData = [...treeData];
-
-      const clickedNodeExpandedState = !expanded;
-
-      newTreeData[index].expanded = clickedNodeExpandedState;
-
-      const expandedRecord: any = {};
-
-      newTreeData.forEach((node) => {
-        const { path } = node;
-
-        if (path === clickedPath || !(path).startsWith(clickedPath + '/')) {
-          return
+      const deletingPaths: string[] = treeData.reduce((prev: string[], curr: TreeNodeProps) => {
+        if (curr.path === deletingNodePath || curr.path.startsWith(deletingPathPrefix)) {
+          prev.push(curr.path);
         }
 
-        node.hidden = clickedNodeExpandedState ? Object.keys(expandedRecord).some((path) => node.path.startsWith(path + '/') && !expandedRecord[path]) : true;
+        return prev;
+      }, []);
 
-        if (node.type === 'folder') {
-          expandedRecord[path] = node.expanded;
-        }
+      dispatch(deleteFolder(deletingPaths)).then(() => {
+        newTreeData.splice(deletingNodeIndex, deletingPaths.length);
+        setTreeData(newTreeData);
       });
-
-      setTreeData(newTreeData);
-    },
-    onNodeContextmenu: (event, path, type) => {
-      const { clientX, clientY } = event;
-      setCurrentContextmenuNode({ path, type });
-      setContextmenuEventPosition({ clientX, clientY });
-    },
-    onNodeRename: (nodeIndex: number, newName: string) => {
-      console.log(nodeIndex, newName)
-      setCurrentEditNode(null);
-    },
-  });
-
-  const onClickAdd = useCallback(() => {}, []);
-
-  const onClickDelete = useCallback(() => {}, []);
+    }
+  }, [currentContextmenuNode, treeData, dispatch]);
 
   const onClickRename = useCallback(() => {
     if (currentContextmenuNode !== null) {
@@ -133,29 +148,260 @@ const FileTree: React.FC<TreeProps> = ({ projectName = 'PROJECT' }) => {
     setContextmenuEventPosition(null);
   }, []);
 
+  const onNodeClick = useCallback((index: number, isFolder: boolean) => {
+    const { path: clickedPath, expanded } = treeData[index];
+
+    setCurrentSelectNode(clickedPath);
+
+    if (!isFolder) return;
+
+    const newTreeData = [...treeData];
+
+    const clickedNodeExpandedState = !expanded;
+
+    newTreeData[index].expanded = clickedNodeExpandedState;
+
+    const expandedRecord: any = {};
+
+    newTreeData.forEach((node) => {
+      const { path } = node;
+
+      if (path === clickedPath || !(path).startsWith(clickedPath + '/')) {
+        return
+      }
+
+      node.hidden = clickedNodeExpandedState ? Object.keys(expandedRecord).some((path) => node.path.startsWith(path + '/') && !expandedRecord[path]) : true;
+
+      if (node.type === 'folder') {
+        expandedRecord[path] = node.expanded;
+      }
+    });
+
+    setTreeData(newTreeData);
+  }, [treeData]);
+
+  const onClickAddOnRoot = useCallback((type: 'file' | 'folder') => {
+    setCurrentContextmenuNode(null);
+    setContextmenuEventPosition(null);
+
+    const newTreeData: TreeNodeProps[] = [...treeData];
+
+    const temporaryTreeNode: TreeNodeProps = {
+      depth: 1,
+      path: '',
+      name: '',
+      type,
+      parentPath: '/',
+      hidden: false,
+      isTemporaryNode: true,
+    };
+
+    let insertNodeIndex;
+
+    if (type === 'folder') {
+      insertNodeIndex = 0;
+    } else {
+      const firstChildFileNodeIndex = newTreeData.findIndex((node) => node.type === 'file' && node.parentPath === '/');
+      insertNodeIndex = firstChildFileNodeIndex !== -1 ? firstChildFileNodeIndex : newTreeData.length;
+    }
+
+    newTreeData.splice(insertNodeIndex, 0, temporaryTreeNode);
+
+    setTreeData(newTreeData);
+  }, [treeData]);
+
+  const onClickAdd = useCallback((type: 'file' | 'folder') => {
+    if (!currentContextmenuNode) return;
+
+    const { index: parentNodeIndex } = currentContextmenuNode;
+
+    const parentNode = treeData[parentNodeIndex];
+
+    if (!treeData[parentNodeIndex].expanded) {
+      onNodeClick(parentNodeIndex, true);
+    }
+
+    const newTreeData: TreeNodeProps[] = [...treeData];
+
+    const temporaryTreeNode: TreeNodeProps = {
+      depth: parentNode.depth + 1,
+      path: '',
+      name: '',
+      type,
+      parentPath: parentNode.path,
+      hidden: false,
+      isTemporaryNode: true,
+    };
+
+    let insertNodeIndex;
+
+    if (type === 'folder') {
+      insertNodeIndex = parentNodeIndex + 1;
+    } else {
+      const firstChildFileNodeIndex = newTreeData.findIndex((node, index) => index > parentNodeIndex && node.type === 'file' && node.parentPath === parentNode.path);
+      const nextParentNodeIndex = newTreeData.findIndex((node, index) => index > parentNodeIndex && !node.path.startsWith(parentNode.path));
+
+      if (firstChildFileNodeIndex !== -1) insertNodeIndex = firstChildFileNodeIndex;
+      else if (nextParentNodeIndex !== -1) insertNodeIndex = nextParentNodeIndex;
+      else {
+        insertNodeIndex = newTreeData.length;
+      }
+    }
+
+    newTreeData.splice(insertNodeIndex, 0, temporaryTreeNode);
+
+    setTreeData(newTreeData);
+
+    setCurrentContextmenuNode(null);
+
+    setContextmenuEventPosition(null);
+  }, [currentContextmenuNode, treeData, onNodeClick]);
+
+  const onNodeRename = useCallback((nodeIndex: number, newName: string, eventType: string) => {
+    setCurrentEditNode(null);
+
+    if (eventType === 'blur') return;
+
+    const node = treeData[nodeIndex];
+
+    if (newName === '' || newName === node.name) return;
+
+    const pathSplit = node.path.split('/');
+
+    pathSplit.pop();
+
+    pathSplit.push(newName);
+
+    const newNodePath = pathSplit.join('/');
+
+    if (node.type === 'file') {
+      if (treeData.some((i, index) => i.type === 'file' && index !== nodeIndex && i.parentPath === node.parentPath && i.name === newName)) return;
+
+      dispatch(renameFile({ originPathname: node.path, newPathname: newNodePath, newFilename: newName })).then(() => {
+        setTreeData(sortPartialFileData(treeData, nodeIndex, newName));
+      });
+    } else if (node.type === 'folder') {
+      if (newName.indexOf('/') > -1) return;
+
+      if (treeData.some((i, index) => i.type === 'folder' && index !== nodeIndex && i.parentPath === node.parentPath && i.name === newName)) return;
+
+      const originPathPrefix = node.path;
+
+      const _treeData = [...treeData];
+
+      const childPaths: any[] = _treeData.reduce((accumulator: any[], currentValue: TreeNodeProps, index) => {
+        const currentPath = currentValue.path;
+
+        if (currentPath === originPathPrefix) {
+          _treeData[index] = {
+            ..._treeData[index],
+            name: newName,
+            path: newNodePath,
+          }
+        }
+
+        if (currentPath.startsWith(originPathPrefix + '/')) {
+          const _originPathname = currentValue.path;
+          const _newPathname = _originPathname.replace(originPathPrefix, newNodePath);
+
+          accumulator.push({ _originPathname, _newPathname });
+          _treeData[index] = {
+            ..._treeData[index],
+            path: _newPathname,
+            parentPath: _treeData[index].parentPath.replace(originPathPrefix, newNodePath),
+          };
+        }
+
+        return accumulator;
+      }, []);
+
+      dispatch(renameFolder({ originPathname: originPathPrefix, newPathname: newNodePath, newFolderName: newName, childPaths })).then(() => {
+        setTreeData(sortTreeData(_treeData));
+      });
+    }
+  }, [treeData, dispatch]);
+
+  const handleTemporaryNodeBlur = useCallback((nodeIndex: number) => {
+    const newTreeData = [...treeData];
+    newTreeData.splice(nodeIndex, 1);
+    setTreeData(newTreeData);
+  }, [treeData]);
+
+  const handleTemporaryNodeKeydown = useCallback((nodeIndex: number, name: string, type: 'file' | 'folder', parentPath: string, path: string, depth: number) => {
+    const newTreeData = [...treeData];
+
+    newTreeData.splice(nodeIndex, 1);
+
+    if (name !== '' && !newTreeData.some((node) => node.parentPath === parentPath && node.name === name)) {
+      const newNode: TreeNodeProps = { type, path, parentPath, name, hidden: false, depth };
+      if (type === 'folder') {
+        newNode.expanded = false;
+        dispatch(addFolder({name, path}));
+      } else {
+        dispatch(addFile({name, path, content: ''}));
+      }
+      newTreeData.splice(nodeIndex, 0, newNode)
+    }
+
+    setTreeData(sortTreeData(newTreeData));
+  }, [dispatch, treeData]);
+
+  const [ treeSetting, setTreeSetting ] = useState<treeSettingsProps>({
+    currentContextmenuNode: null,
+    currentEditNode: null,
+    currentSelectNode: null,
+    onNodeClick,
+    onNodeRename,
+    onNodeContextmenu: (event, path, type, index) => {
+      const { clientX, clientY } = event;
+      setCurrentContextmenuNode({ path, type, index });
+      setContextmenuEventPosition({ clientX, clientY });
+    },
+  });
+
   useEffect(() => {
     setTreeSetting((setting) => ({
       ...setting,
       currentContextmenuNode,
       currentSelectNode,
       currentEditNode,
+      onNodeRename,
+      onNodeClick,
     }));
-  }, [ currentContextmenuNode, currentSelectNode, currentEditNode ]);
+  }, [ currentContextmenuNode, currentSelectNode, currentEditNode, onNodeRename, onNodeClick ]);
 
   return (
     <TreeSettingsContext.Provider value={treeSetting}>
       <Container>
         <ProjectName>
           <strong>{projectName}</strong>
+          <div className="icon-buttons">
+            <button type="button" onClick={() => onClickAddOnRoot('file')}>
+              <IconNewFile width="16" height="16" />
+            </button>
+            <button type="button" onClick={() => onClickAddOnRoot('folder')}>
+              <IconNewFolder width="16" height="16" />
+            </button>
+          </div>
         </ProjectName>
         {
           expanded && treeData.map((treeNode, index) => (
             treeNode.hidden ? null : (
-              <TreeNode
-                key={treeNode.path}
-                nodeIndex={index}
-                {...treeNode}
-              />
+              treeNode.isTemporaryNode ? (
+                <TemporaryTreeNode
+                  key={treeNode.path}
+                  nodeIndex={index}
+                  onEnter={handleTemporaryNodeKeydown}
+                  onBlur={handleTemporaryNodeBlur}
+                  {...treeNode}
+                />
+              ) : (
+                <TreeNode
+                  key={treeNode.path}
+                  nodeIndex={index}
+                  {...treeNode}
+                />
+              )
             )
           ))
         }
@@ -208,7 +454,6 @@ function getInitialDataFromStore(data: files): TreeNodeProps[] {
 
 function sortTreeData(data: TreeNodeProps[]): TreeNodeProps[] {
   return data.sort((a, b) => {
-
     if (a.type === 'file' && b.type === 'file') {
       if (a.parentPath === b.parentPath) {
         return a.name < b.name ? -1 : 1;
@@ -248,6 +493,32 @@ function sortTreeData(data: TreeNodeProps[]): TreeNodeProps[] {
     }
 
     return a.path < b.path ? -1 : 1;
+  });
+}
+
+function sortPartialFileData(data: TreeNodeProps[], index: number, newName: string) {
+  const _data = [...data];
+
+  const node = _data[index];
+
+  const { parentPath } = node;
+
+  const pathSplit = node.path.split('/');
+
+  pathSplit.pop();
+
+  pathSplit.push(newName);
+
+  node.name = newName;
+
+  node.path = pathSplit.join('/');
+
+  return _data.sort((a, b) => {
+    if (a.type === 'file' && b.type === 'file' && a.parentPath === parentPath && b.parentPath === parentPath) {
+      return a.name < b.name ? -1 : 1;
+    }
+
+    return 0;
   });
 }
 

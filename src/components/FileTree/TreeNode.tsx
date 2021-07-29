@@ -15,6 +15,7 @@ interface treeNodeFCProps extends TreeNodeProps {
 
 const NodeName = styled.span`
   margin-left: 2px;
+  flex: 1;
 `;
 
 const CurrentNodeRow = styled.div<{
@@ -27,7 +28,7 @@ const CurrentNodeRow = styled.div<{
   align-items: center;
   font-size: 13px;
   cursor: pointer;
-  padding: 2px 0 2px ${props => (props.depth - 1) * 18 + (props.isFolder ? 0 : 18)}px;
+  padding: 2px 0 2px ${props => (props.depth - 1) * 18 + (props.isFolder ? 0 : 18) + 6}px;
   background-color: ${props => props.isCurrentSelectNode ? '#d3d3d3 !important' : props.isCurrentContextmenu ? 'red !important' : 'unset'};
   
   :hover {
@@ -40,6 +41,11 @@ const CurrentNodeRow = styled.div<{
   
   & button {
     flex-shrink: 0;
+  }
+  
+  input {
+    flex: 1;
+    width: 100px;
   }
 `;
 
@@ -83,7 +89,7 @@ const TreeNode: React.FC<treeNodeFCProps> = ({ depth, nodeIndex, expanded, path,
   const handleContextmenu: (e: React.MouseEvent) => void = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    onNodeContextmenu && onNodeContextmenu(e, path, type);
+    onNodeContextmenu && onNodeContextmenu(e, path, type, nodeIndex);
   };
 
   const handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void = (e) => {
@@ -93,7 +99,7 @@ const TreeNode: React.FC<treeNodeFCProps> = ({ depth, nodeIndex, expanded, path,
   const handleInputBlur = () => {
     const value = editInputValue.trim();
     if (onNodeRename) {
-      onNodeRename(nodeIndex, value);
+      onNodeRename(nodeIndex, value, 'blur');
     }
   };
 
@@ -101,9 +107,17 @@ const TreeNode: React.FC<treeNodeFCProps> = ({ depth, nodeIndex, expanded, path,
     if (e.key === 'Enter') {
       const value = editInputValue.trim();
       if (onNodeRename) {
-        onNodeRename(nodeIndex, value);
+        onNodeRename(nodeIndex, value, 'enter');
       }
     }
+  };
+
+  const handleInputClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
+  const handleInputContextmenu = (e: React.MouseEvent) => {
+    e.stopPropagation();
   };
 
   useEffect(() => {
@@ -113,7 +127,12 @@ const TreeNode: React.FC<treeNodeFCProps> = ({ depth, nodeIndex, expanded, path,
 
   useEffect(() => {
     if (isEditing) {
-      inputRef.current && inputRef.current.focus();
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          inputRef.current.select();
+        }
+      });
       setEditInputValue(name);
     }
 
@@ -137,7 +156,7 @@ const TreeNode: React.FC<treeNodeFCProps> = ({ depth, nodeIndex, expanded, path,
       }
       {
         isEditing ? (
-          <input ref={inputRef} value={editInputValue} onChange={handleInputChange} onBlur={handleInputBlur} onKeyDown={handleKeyDownEnter} />
+          <input type="text" ref={inputRef} value={editInputValue} onClick={handleInputClick} onChange={handleInputChange} onBlur={handleInputBlur} onKeyDown={handleKeyDownEnter} onContextMenu={handleInputContextmenu} />
         ) : (
           <NodeName>{name}</NodeName>
         )

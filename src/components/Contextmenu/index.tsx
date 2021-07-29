@@ -8,7 +8,7 @@ interface contextmenuProps {
     clientY: number,
   } | null,
   onClickOutside: () => void,
-  onAdd: () => void,
+  onAdd: (type: 'file' | 'folder') => void,
   onDelete: () => void,
   onRename: () => void,
 }
@@ -87,6 +87,14 @@ const Contextmenu = ({ currentNodeType, contextmenuEventPosition, onClickOutside
     setStyle({ left, top });
   }, [ contextmenuEventPosition ]);
 
+  const onClickAddFile = () => {
+    onAdd('file');
+  };
+
+  const onClickAddFolder= () => {
+    onAdd('folder');
+  };
+
   useEffect(() => {
     if (style) {
       setShow(true);
@@ -98,8 +106,8 @@ const Contextmenu = ({ currentNodeType, contextmenuEventPosition, onClickOutside
       {
         currentNodeType === 'folder' && (
           <>
-            <li onClick={onAdd}>New File</li>
-            <li onClick={onAdd}>New Folder</li>
+            <li onClick={onClickAddFile}>New File</li>
+            <li onClick={onClickAddFolder}>New Folder</li>
           </>
         )
       }
